@@ -1,9 +1,3 @@
-// Copyright 2016 Zack Guo <gizak@icloud.com>. All rights reserved.
-// Use of this source code is governed by a MIT license that can
-// be found in the LICENSE file.
-
-// +build ignore
-
 package main
 
 import (
@@ -16,6 +10,8 @@ import (
 	"os"
 	"os/user"
 	"path"
+	"strings"
+	"time"
 )
 
 func read_raw_input() []string {
@@ -32,9 +28,6 @@ func read_raw_input() []string {
 		os.Mkdir(workspace, 0764)
 	}
 	clist := path.Join(workspace, "clist")
-	if _, err = os.Stat(clist); os.IsNotExist(err) {
-		os.Create(clist)
-	}
 	file, err := os.Open(clist)
 	if err != nil {
 		log.Fatal(err)
@@ -71,9 +64,16 @@ func read_struct_input() *Meta {
 	if _, err := os.Stat(workspace); os.IsNotExist(err) {
 		os.Mkdir(workspace, 0764)
 	}
+	clist := path.Join(workspace, "clist")
+	if _, err = os.Stat(clist); os.IsNotExist(err) {
+		os.Create(clist)
+	}
 	slist := path.Join(workspace, "slist")
 	if _, err = os.Stat(slist); os.IsNotExist(err) {
 		os.Create(slist)
+		now := time.Now().Format("2006-01-02 15:04:05")
+		initial := fmt.Sprintf(`{"time": "%s", "commands": []}`, now)
+		ioutil.WriteFile(slist, []byte(initial), 0764)
 	}
 	file, err := os.Open(slist)
 	if err != nil {
@@ -89,7 +89,51 @@ func read_struct_input() *Meta {
 	if err != nil {
 		log.Fatal(err)
 	}
+	restruct(&meta, slist, clist)
 	return &meta
+}
+
+func restruct(meta *Meta, slist, clist string) *Meta {
+	// 根据 clist 修改的时间和 slist保存的时间，判断是否需要重新根据 clist 生成 slist
+	info, err := os.Stat(clist)
+	if err != nil {
+		log.Fatal(err)
+	}
+	modtime := info.ModTime()
+	metatime, _ := time.Parse("2006-01-02 15:04:05", meta.Time)
+	// log.Fatalf("%v, %v, %t", metatime, modtime, metatime.After(modtime))
+	if metatime.Before(modtime) {
+		lines := read_raw_input()
+		for _, line := range lines {
+			strs := strings.Split(line, "|")
+			flag := true
+			for _, cl := range meta.Commands {
+				if cl.Cmd == strs[0] {
+					flag = false
+					if len(strs) > 1 {
+						log.Fatal(line)
+						cl.Desc = strs[1]
+					}
+					break
+				}
+			}
+			if flag {
+				var sl Slist
+				sl.Cmd = strs[0]
+				if len(strs) > 1 {
+					sl.Desc = strs[1]
+				}
+				meta.Commands = append(meta.Commands, sl)
+			}
+		}
+		meta.Time = time.Now().Format("2006-01-02 15:04:05")
+		data, err := json.Marshal(meta)
+		if err != nil {
+			log.Fatal(err)
+		}
+		ioutil.WriteFile(slist, data, 0764)
+	}
+	return meta
 }
 
 // func encode(lines []string)[]string {
@@ -101,7 +145,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	slists := read_struct_input()
+	slists := read_struct_input().Commands
 	strs := make([]string, 0)
 	for k, v := range slists {
 		// 封装成 [1] [cmd  desc]
@@ -158,6 +202,4 @@ func main() {
 	})
 	termui.Loop()
 	termui.Close()
-	fmt.Println(strs[0])
-	fmt.Println(strs[1])
 }
