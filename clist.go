@@ -7,26 +7,110 @@
 package main
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
 	"github.com/gizak/termui"
+	"io/ioutil"
+	"log"
 	"os"
+	"os/user"
+	"path"
 )
+
+func read_raw_input() []string {
+	//在用户的home目录下创建文件夹 .clist
+	// 在里面存放文件 clist， 用于给使用者添加命令
+	// 此处读取命令，然后交给其他函数整理
+	home, err := user.Current()
+	if err != nil {
+		fmt.Errorf("%s", err.Error())
+		panic(err)
+	}
+	workspace := fmt.Sprintf("%s/.clist/", home.HomeDir)
+	if _, err := os.Stat(workspace); os.IsNotExist(err) {
+		os.Mkdir(workspace, 0764)
+	}
+	clist := path.Join(workspace, "clist")
+	if _, err = os.Stat(clist); os.IsNotExist(err) {
+		os.Create(clist)
+	}
+	file, err := os.Open(clist)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer file.Close()
+	lines := make([]string, 0)
+	// 每行文本都以 | 号做数据的分割
+	// 目前的需求是：  命令|说明
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	return lines
+}
+
+type Slist struct {
+	Cmd  string
+	Desc string
+	Freq int32
+}
+
+type Meta struct {
+	Time     string
+	Commands []Slist
+}
+
+func read_struct_input() *Meta {
+	home, err := user.Current()
+	if err != nil {
+		fmt.Errorf("%s", err.Error())
+		panic(err)
+	}
+	workspace := fmt.Sprintf("%s/.clist/", home.HomeDir)
+	if _, err := os.Stat(workspace); os.IsNotExist(err) {
+		os.Mkdir(workspace, 0764)
+	}
+	slist := path.Join(workspace, "slist")
+	if _, err = os.Stat(slist); os.IsNotExist(err) {
+		os.Create(slist)
+	}
+	file, err := os.Open(slist)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer file.Close()
+	data, err := ioutil.ReadAll(file)
+	if err != nil {
+		log.Fatal(err)
+	}
+	var meta Meta
+	err = json.Unmarshal(data, &meta)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return &meta
+}
+
+// func encode(lines []string)[]string {
+// 	// 将 命令|说明
+// }
 
 func main() {
 	err := termui.Init()
 	if err != nil {
 		panic(err)
 	}
-
-	strs := []string{
-		"[0] [github.com/gizak/termui]",
-		"[1] [你好，世界]",
-		"[2] [こんにちは世界]",
-		"[3] [color output](fg-white,bg-green)",
-		"[4] [output.go]",
-		"[5] [random_out.go]",
-		"[6] [dashboard.go]",
-		"[7] [nsf/termbox-go]"}
+	slists := read_struct_input()
+	strs := make([]string, 0)
+	for k, v := range slists {
+		// 封装成 [1] [cmd  desc]
+		line := fmt.Sprintf("[%d] [%s  %s]", k+1, v.Cmd, v.Desc)
+		if k == 0 {
+			line = line + "(fg-white,bg-green)"
+		}
+		strs = append(strs, line)
+	}
 
 	ls := termui.NewList()
 	ls.Items = strs
@@ -35,7 +119,7 @@ func main() {
 	ls.Height = termui.TermHeight()
 	ls.Width = termui.TermWidth()
 	ls.Y = 0
-	current := 3
+	current := 0
 	termui.Render(ls)
 	termui.Handle("/sys/kbd/q", func(termui.Event) {
 		termui.StopLoop()
@@ -74,12 +158,6 @@ func main() {
 	})
 	termui.Loop()
 	termui.Close()
-	fmt.Println("xxxxxxxxx")
-	fmt.Printf("hedddxxx")
-	os.Stdout.WriteString("\radsfsadf")
-	os.Stdout.Sync()
-	err = os.Setenv("MYLIST", "HELLO")
-	if err != nil {
-		fmt.Println(err.Error())
-	}
+	fmt.Println(strs[0])
+	fmt.Println(strs[1])
 }
