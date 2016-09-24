@@ -10,14 +10,27 @@ import (
 	"os"
 	"os/user"
 	"path"
+	"sort"
 	"strings"
 	"time"
 )
 
-func read_raw_input() []string {
-	//在用户的home目录下创建文件夹 .clist
-	// 在里面存放文件 clist， 用于给使用者添加命令
-	// 此处读取命令，然后交给其他函数整理
+// 排序接口实现
+type ByFreq []Slist
+
+func (a ByFreq) Len() int {
+	return len(a)
+}
+
+func (a ByFreq) Swap(i, j int) {
+	a[i], a[j] = a[j], a[i]
+}
+
+func (a ByFreq) Less(i, j int) bool {
+	return a[i].Freq > a[j].Freq
+}
+
+func workspace() string {
 	home, err := user.Current()
 	if err != nil {
 		fmt.Errorf("%s", err.Error())
@@ -27,7 +40,15 @@ func read_raw_input() []string {
 	if _, err := os.Stat(workspace); os.IsNotExist(err) {
 		os.Mkdir(workspace, 0764)
 	}
-	clist := path.Join(workspace, "clist")
+	return workspace
+}
+
+func read_raw_input() []string {
+	//在用户的home目录下创建文件夹 .clist
+	// 在里面存放文件 clist， 用于给使用者添加命令
+	// 此处读取命令，然后交给其他函数整理
+	wk := workspace()
+	clist := path.Join(wk, "clist")
 	file, err := os.Open(clist)
 	if err != nil {
 		log.Fatal(err)
@@ -55,24 +76,16 @@ type Meta struct {
 }
 
 func read_struct_input() *Meta {
-	home, err := user.Current()
-	if err != nil {
-		fmt.Errorf("%s", err.Error())
-		panic(err)
-	}
-	workspace := fmt.Sprintf("%s/.clist/", home.HomeDir)
-	if _, err := os.Stat(workspace); os.IsNotExist(err) {
-		os.Mkdir(workspace, 0764)
-	}
-	clist := path.Join(workspace, "clist")
-	if _, err = os.Stat(clist); os.IsNotExist(err) {
+	wk := workspace()
+	clist := path.Join(wk, "clist")
+	if _, err := os.Stat(clist); os.IsNotExist(err) {
 		os.Create(clist)
 	}
-	slist := path.Join(workspace, "slist")
-	if _, err = os.Stat(slist); os.IsNotExist(err) {
+	slist := path.Join(wk, "slist")
+	if _, err := os.Stat(slist); os.IsNotExist(err) {
 		os.Create(slist)
-		now := time.Now().Format("2006-01-02 15:04:05")
-		initial := fmt.Sprintf(`{"time": "%s", "commands": []}`, now)
+		// date, _ := time.Parse("2006-01-02 15:04:05", "1970-01-01 00:01:05")
+		initial := fmt.Sprintf(`{"time": "%s", "commands": []}`, "2006-01-02 15:04:05")
 		ioutil.WriteFile(slist, []byte(initial), 0764)
 	}
 	file, err := os.Open(slist)
@@ -99,9 +112,9 @@ func restruct(meta *Meta, slist, clist string) *Meta {
 	if err != nil {
 		log.Fatal(err)
 	}
-	modtime := info.ModTime()
+	modtime := info.ModTime().UTC()
 	metatime, _ := time.Parse("2006-01-02 15:04:05", meta.Time)
-	// log.Fatalf("%v, %v, %t", metatime, modtime, metatime.After(modtime))
+	sort.Sort(ByFreq(meta.Commands))
 	if metatime.Before(modtime) {
 		lines := read_raw_input()
 		for _, line := range lines {
@@ -111,7 +124,6 @@ func restruct(meta *Meta, slist, clist string) *Meta {
 				if cl.Cmd == strs[0] {
 					flag = false
 					if len(strs) > 1 {
-						log.Fatal(line)
 						cl.Desc = strs[1]
 					}
 					break
@@ -124,30 +136,27 @@ func restruct(meta *Meta, slist, clist string) *Meta {
 					sl.Desc = strs[1]
 				}
 				meta.Commands = append(meta.Commands, sl)
+				sort.Sort(ByFreq(meta.Commands))
 			}
 		}
-		meta.Time = time.Now().Format("2006-01-02 15:04:05")
-		data, err := json.Marshal(meta)
-		if err != nil {
-			log.Fatal(err)
-		}
-		ioutil.WriteFile(slist, data, 0764)
 	}
+	meta.Time = time.Now().UTC().Format("2006-01-02 15:04:05")
+	data, err := json.Marshal(meta)
+	if err != nil {
+		log.Fatal(err)
+	}
+	ioutil.WriteFile(slist, data, 0764)
 	return meta
 }
-
-// func encode(lines []string)[]string {
-// 	// 将 命令|说明
-// }
 
 func main() {
 	err := termui.Init()
 	if err != nil {
 		panic(err)
 	}
-	slists := read_struct_input().Commands
+	slists := read_struct_input()
 	strs := make([]string, 0)
-	for k, v := range slists {
+	for k, v := range slists.Commands {
 		// 封装成 [1] [cmd  desc]
 		line := fmt.Sprintf("[%d] [%s  %s]", k+1, v.Cmd, v.Desc)
 		if k == 0 {
@@ -167,7 +176,6 @@ func main() {
 	termui.Render(ls)
 	termui.Handle("/sys/kbd/q", func(termui.Event) {
 		termui.StopLoop()
-		fmt.Print("hello world")
 	})
 	termui.Handle("/sys/kbd/<down>", func(termui.Event) {
 		if current < len(ls.Items)-1 {
@@ -197,7 +205,14 @@ func main() {
 		termui.Render(ls)
 	})
 	termui.Handle("/sys/kbd/<enter>", func(termui.Event) {
-		fmt.Print("hellodddd")
+		if len(slists.Commands) > 0 {
+			cmd := slists.Commands[current]
+			cmd.Freq = cmd.Freq + 1
+			slists.Commands[current] = cmd
+			wk := workspace()
+			restruct(slists, path.Join(wk, "slist"), path.Join(wk, "clist"))
+			ioutil.WriteFile(path.Join(wk, "cmd"), []byte(cmd.Cmd), 0764)
+		}
 		termui.StopLoop()
 	})
 	termui.Loop()
