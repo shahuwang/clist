@@ -117,6 +117,7 @@ func restruct(meta *Meta, slist, clist string) *Meta {
 	sort.Sort(ByFreq(meta.Commands))
 	if metatime.Before(modtime) {
 		lines := read_raw_input()
+		cmds := make([]Slist, 0)
 		for _, line := range lines {
 			strs := strings.Split(line, "|")
 			flag := true
@@ -126,6 +127,7 @@ func restruct(meta *Meta, slist, clist string) *Meta {
 					if len(strs) > 1 {
 						cl.Desc = strs[1]
 					}
+					cmds = append(cmds, cl)
 					break
 				}
 			}
@@ -135,10 +137,11 @@ func restruct(meta *Meta, slist, clist string) *Meta {
 				if len(strs) > 1 {
 					sl.Desc = strs[1]
 				}
-				meta.Commands = append(meta.Commands, sl)
-				sort.Sort(ByFreq(meta.Commands))
+				cmds = append(cmds, sl)
 			}
 		}
+		sort.Sort(ByFreq(cmds))
+		meta.Commands = cmds
 	}
 	meta.Time = time.Now().UTC().Format("2006-01-02 15:04:05")
 	data, err := json.Marshal(meta)
@@ -158,9 +161,12 @@ func main() {
 	strs := make([]string, 0)
 	for k, v := range slists.Commands {
 		// 封装成 [1] [cmd  desc]
-		line := fmt.Sprintf("[%d] [%s  %s]", k+1, v.Cmd, v.Desc)
+		var line string
 		if k == 0 {
-			line = line + "(fg-white,bg-green)"
+			// line = line + "(fg-white,bg-green)"
+			line = fmt.Sprintf("[%d] [%s  %s](fg-white,bg-green)", k+1, v.Cmd, v.Desc)
+		} else {
+			line = fmt.Sprintf("[%d] %s  %s", k+1, v.Cmd, v.Desc)
 		}
 		strs = append(strs, line)
 	}
@@ -179,22 +185,20 @@ func main() {
 	})
 	termui.Handle("/sys/kbd/<down>", func(termui.Event) {
 		if current < len(ls.Items)-1 {
-			curStr := ls.Items[current]
-			length := len(curStr)
-			ls.Items[current] = curStr[0 : length-19]
-			nextStr := ls.Items[current+1]
-			ls.Items[current+1] = nextStr + "(fg-white,bg-green)"
+			clist := slists.Commands[current]
+			ls.Items[current] = fmt.Sprintf("[%d] %s %s", current+1, clist.Cmd, clist.Desc)
+			next := slists.Commands[current+1]
+			ls.Items[current+1] = fmt.Sprintf("[%d] [%s %s](fg-white,bg-green)", current+2, next.Cmd, next.Desc)
 			termui.Render(ls)
 			current = current + 1
 		}
 	})
 	termui.Handle("/sys/kbd/<up>", func(termui.Event) {
 		if current > 0 {
-			curStr := ls.Items[current]
-			length := len(curStr)
-			ls.Items[current] = curStr[0 : length-19]
-			nextStr := ls.Items[current-1]
-			ls.Items[current-1] = nextStr + "(fg-white,bg-green)"
+			clist := slists.Commands[current]
+			ls.Items[current] = fmt.Sprintf("[%d] %s %s", current+1, clist.Cmd, clist.Desc)
+			next := slists.Commands[current-1]
+			ls.Items[current-1] = fmt.Sprintf("[%d] [%s %s](fg-white,bg-green)", current, next.Cmd, next.Desc)
 			termui.Render(ls)
 			current = current - 1
 		}
