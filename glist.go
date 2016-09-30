@@ -181,8 +181,11 @@ func main() {
 	current := 0
 	termui.Render(ls)
 	termui.Handle("/sys/kbd/q", func(termui.Event) {
+		wk := workspace()
+		ioutil.WriteFile(path.Join(wk, "cmd"), []byte("echo Bye bye!"), 0764)
 		termui.StopLoop()
 	})
+
 	termui.Handle("/sys/kbd/<down>", func(termui.Event) {
 		if current < len(ls.Items)-1 {
 			clist := slists.Commands[current]
